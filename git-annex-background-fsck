@@ -14,10 +14,13 @@ def is_annex_root(path):
 def find_annex_root(path):
     while path:
         if is_annex_root(path):
-            return os.path.normpath(path)
-        path = os.path.join(path, "..")
+            return path
+        path = os.path.normpath(os.path.join(path, ".."))
 
 def tree(path):
+    if os.path.isfile(path):
+        yield path
+        return
     for root, dirs, files in os.walk(path):
         for f in files:
             fn = os.path.join(root, f)
