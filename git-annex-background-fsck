@@ -40,7 +40,9 @@ def get_all_files(paths):
         for fn in filtered_tree(path):
             #TODO: it would be nice to prefix this with the name of the annex
             normalized = os.path.relpath(fn, annex_root)
-            files.append(dict(root=annex_root, full=fn, normalized=normalized))
+            keypath = os.path.realpath(fn)
+            keypath = os.path.relpath(keypath, annex_root).replace(".git/annex/objects","")
+            files.append(dict(root=annex_root, full=fn, normalized=normalized, key=keypath))
             
     return files
 
@@ -60,9 +62,9 @@ def connect_db(db_path):
 
 def record_fsck(db, entry):
     try :
-        db.execute('INSERT INTO fsck (date, filename) VALUES (?,?)', (now(), entry['normalized']))
+        db.execute('INSERT INTO fsck (date, filename) VALUES (?,?)', (now(), entry['key']))
     except sqlite3.IntegrityError:
-        db.execute('UPDATE fsck set date=? where filename=?', (now(), entry['normalized']))
+        db.execute('UPDATE fsck set date=? where filename=?', (now(), entry['key']))
 
 def get_fsck_times(db):
     c = db.execute("SELECT filename, date FROM fsck")
@@ -75,12 +77,12 @@ def run(db_path, annex_paths):
     fsck_times = dict(get_fsck_times(db))
 
     file_list = get_all_files(annex_paths)
-    file_list.sort(key=lambda f: fsck_times.get(f['normalized'], 0))
+    file_list.sort(key=lambda f: fsck_times.get(f['key'], 0))
     print len(file_list), "files"
     for f in file_list:
         if not os.path.exists(f['full']):
             continue
-        last = fsck_times.get(f['normalized'])
+        last = fsck_times.get(f['key'])
         print "%s last fscked %s" % (f['normalized'], last or "Never")
         if fsck(f):
             record_fsck(db, f)
