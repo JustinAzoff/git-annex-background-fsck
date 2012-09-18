@@ -46,7 +46,7 @@ def get_all_files(paths):
 
 def fsck(entry):
     os.chdir(entry['root'])
-    status = subprocess.call(["git", "annex", "fsck", "-q", entry['full']])
+    status = subprocess.call(["git", "annex", "fsck", "-q", entry['normalized']])
     return status == 0
 
 def connect_db(db_path):
@@ -76,6 +76,8 @@ def run(db_path, annex_paths):
     file_list.sort(key=lambda f: fsck_times.get(f['normalized'], 0))
     print len(file_list), "files"
     for f in file_list:
+        if not os.path.exists(f['full']):
+            continue
         last = fsck_times.get(f['normalized'])
         print "%s last fscked %s" % (f['normalized'], last or "Never")
         if fsck(f):
