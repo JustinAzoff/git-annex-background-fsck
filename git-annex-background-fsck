@@ -11,11 +11,13 @@ now = datetime.datetime.now
 def is_annex_root(path):
     return os.path.exists(os.path.join(path, ".git", "annex"))
 
-def find_annex_root(path):
-    while path:
+def find_annex_root(root):
+    path = root
+    while path != "/":
         if is_annex_root(path):
             return path
         path = os.path.normpath(os.path.join(path, ".."))
+    raise Exception("Could not find annex root for %s" % root)
 
 def tree(path):
     if os.path.isfile(path):
