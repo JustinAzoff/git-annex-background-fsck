@@ -69,6 +69,7 @@ def get_fsck_times(db):
     return c.fetchall()
 
 def run(db_path, annex_paths):
+    annex_paths = map(os.path.abspath, annex_paths)
     last_commit = 0
     db = connect_db(db_path)
     fsck_times = dict(get_fsck_times(db))
