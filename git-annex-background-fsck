@@ -1,0 +1,83 @@
+#!/usr/bin/env python
+import datetime
+import os
+import sys
+import subprocess
+import random
+import sqlite3
+
+now = datetime.datetime.now
+
+def is_annex_root(path):
+    return os.path.exists(os.path.join(path, ".git", "annex"))
+
+def find_annex_root(path):
+    while path:
+        if is_annex_root(path):
+            return os.path.normpath(path)
+        path = os.path.join(path, "..")
+
+def tree(path):
+    for root, dirs, files in os.walk(path):
+        for f in files:
+            fn = os.path.join(root, f)
+            yield fn
+
+def filtered_tree(path):
+    for fn in tree(path):
+        if '.git/' not in fn:
+            yield fn
+
+def get_all_files(paths):
+    files = []
+    for path in paths:
+        annex_root = find_annex_root(path)
+        for fn in filtered_tree(path):
+            #TODO: it would be nice to prefix this with the name of the annex
+            normalized = os.path.relpath(fn, annex_root)
+            files.append(dict(root=annex_root, full=fn, normalized=normalized))
+            
+    return files
+
+def fsck(entry):
+    os.chdir(entry['root'])
+    status = subprocess.call(["git", "annex", "fsck", "-q", entry['full']])
+    return status == 0
+
+def connect_db(db_path):
+    c = sqlite3.connect(db_path, isolation_level=None)
+    try :
+        c.execute('''CREATE TABLE fsck
+                 (date text, filename text unique)''')
+    except sqlite3.OperationalError:
+        pass
+    return c
+
+def record_fsck(db, entry):
+    try :
+        db.execute('INSERT INTO fsck (date, filename) VALUES (?,?)', (now(), entry['normalized']))
+    except sqlite3.IntegrityError:
+        db.execute('UPDATE fsck set date=? where filename=?', (now(), entry['normalized']))
+
+def get_fsck_times(db):
+    c = db.execute("SELECT filename, date FROM fsck")
+    return c.fetchall()
+
+def run(db_path, annex_paths):
+    db = connect_db(db_path)
+    fsck_times = dict(get_fsck_times(db))
+
+    file_list = get_all_files(annex_paths)
+    file_list.sort(key=lambda f: fsck_times.get(f['normalized'], 0))
+    print len(file_list), "files"
+    for f in file_list:
+        last = fsck_times.get(f['normalized'])
+        print "%s last fscked %s" % (f['normalized'], last or "Never")
+        if fsck(f):
+            record_fsck(db, f)
+
+
+if __name__ == "__main__":
+    db_path = sys.argv[1]
+    roots = sys.argv[2:]
+    run(db_path, roots)
