@@ -3,8 +3,8 @@ import datetime
 import os
 import sys
 import subprocess
-import random
 import sqlite3
+import time
 
 now = datetime.datetime.now
 
@@ -50,7 +50,7 @@ def fsck(entry):
     return status == 0
 
 def connect_db(db_path):
-    c = sqlite3.connect(db_path, isolation_level=None)
+    c = sqlite3.connect(db_path)
     try :
         c.execute('''CREATE TABLE fsck
                  (date text, filename text unique)''')
@@ -69,6 +69,7 @@ def get_fsck_times(db):
     return c.fetchall()
 
 def run(db_path, annex_paths):
+    last_commit = 0
     db = connect_db(db_path)
     fsck_times = dict(get_fsck_times(db))
 
@@ -83,6 +84,11 @@ def run(db_path, annex_paths):
         if fsck(f):
             record_fsck(db, f)
 
+        if time.time() - last_commit > 10:
+            db.commit()
+            last_commit = time.time()
+
+    db.commit()
 
 if __name__ == "__main__":
     db_path = sys.argv[1]
