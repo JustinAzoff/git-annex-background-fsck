@@ -41,6 +41,8 @@ def get_all_files(paths):
             short = os.path.relpath(fn, annex_root)
             keypath = os.path.realpath(fn)
             parent = os.path.dirname(keypath)
+            if 'annex/objects' not in keypath:
+                continue
             files.append(dict(root=annex_root, full=fn, short=short, key=keypath, parent=parent))
             
     return files
