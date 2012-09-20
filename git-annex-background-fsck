@@ -38,7 +38,6 @@ def get_all_files(paths):
     for path in paths:
         annex_root = find_annex_root(path)
         for fn in filtered_tree(path):
-            #TODO: it would be nice to prefix this with the name of the annex
             short = os.path.relpath(fn, annex_root)
             keypath = os.path.realpath(fn)
             parent = os.path.dirname(keypath)
