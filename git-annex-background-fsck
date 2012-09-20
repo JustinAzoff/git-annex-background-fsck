@@ -1,12 +1,12 @@
 #!/usr/bin/env python
-import datetime
 import os
+import stat
 import sys
-import subprocess
-import sqlite3
 import time
+import subprocess
 
-now = datetime.datetime.now
+def ts():
+    return int(time.time())
 
 def is_annex_root(path):
     return os.path.exists(os.path.join(path, ".git", "annex"))
@@ -39,62 +39,50 @@ def get_all_files(paths):
         annex_root = find_annex_root(path)
         for fn in filtered_tree(path):
             #TODO: it would be nice to prefix this with the name of the annex
-            normalized = os.path.relpath(fn, annex_root)
+            short = os.path.relpath(fn, annex_root)
             keypath = os.path.realpath(fn)
-            keypath = os.path.relpath(keypath, annex_root).replace(".git/annex/objects","")
-            files.append(dict(root=annex_root, full=fn, normalized=normalized, key=keypath))
+            parent = os.path.dirname(keypath)
+            files.append(dict(root=annex_root, full=fn, short=short, key=keypath, parent=parent))
             
     return files
 
 def fsck(entry):
     os.chdir(entry['root'])
-    status = subprocess.call(["git", "annex", "fsck", "-q", entry['normalized']])
+    status = subprocess.call(["git", "annex", "fsck", "-q", entry['short']])
     return status == 0
 
-def connect_db(db_path):
-    c = sqlite3.connect(db_path)
+def record_fsck(entry):
+    parent = entry['parent']
+    os.chmod(parent, os.stat(parent).st_mode | stat.S_ISVTX)
+    t = ts()
+    os.utime(parent, (t,t))
+
+def is_sticky(entry):
+    return os.stat(entry['parent']).st_mode & stat.S_ISVTX
+
+def get_fsck_time(entry):
     try :
-        c.execute('''CREATE TABLE fsck
-                 (date text, filename text unique)''')
-    except sqlite3.OperationalError:
+        if is_sticky(entry):
+            return os.path.getmtime(entry['parent'])
+    except OSError:
         pass
-    return c
 
-def record_fsck(db, entry):
-    try :
-        db.execute('INSERT INTO fsck (date, filename) VALUES (?,?)', (now(), entry['key']))
-    except sqlite3.IntegrityError:
-        db.execute('UPDATE fsck set date=? where filename=?', (now(), entry['key']))
+    return None
 
-def get_fsck_times(db):
-    c = db.execute("SELECT filename, date FROM fsck")
-    return c.fetchall()
-
-def run(db_path, annex_paths):
+def run(annex_paths):
     annex_paths = map(os.path.abspath, annex_paths)
     annex_paths = map(os.path.realpath, annex_paths)
-    last_commit = 0
-    db = connect_db(db_path)
-    fsck_times = dict(get_fsck_times(db))
 
     file_list = get_all_files(annex_paths)
-    file_list.sort(key=lambda f: fsck_times.get(f['key'], 0))
-    print len(file_list), "files"
-    for f in file_list:
-        if not os.path.exists(f['full']):
-            continue
-        last = fsck_times.get(f['key'])
-        print "%s last fscked %s" % (f['normalized'], last or "Never")
+    real_files = [f for f in file_list if os.path.exists(f['full'])]
+    fsck_times = [(get_fsck_time(f),f) for f in real_files]
+    fsck_times.sort()
+    print len(fsck_times), "files"
+    for fsck_time, f in fsck_times:
+        print "%s last fscked %s" % (f['short'], fsck_time and time.ctime(fsck_time) or "Never")
         if fsck(f):
-            record_fsck(db, f)
-
-        if time.time() - last_commit > 10:
-            db.commit()
-            last_commit = time.time()
-
-    db.commit()
+            record_fsck(f)
 
 if __name__ == "__main__":
-    db_path = sys.argv[1]
-    roots = sys.argv[2:]
-    run(db_path, roots)
+    roots = sys.argv[1:]
+    run(roots)
