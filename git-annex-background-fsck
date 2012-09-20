@@ -66,9 +66,9 @@ def get_fsck_time(entry):
     except OSError:
         pass
 
-    return None
+    return 0
 
-def run(annex_paths):
+def run(annex_paths, minimum_age=60*60*24):
     annex_paths = map(os.path.abspath, annex_paths)
     annex_paths = map(os.path.realpath, annex_paths)
 
@@ -78,9 +78,10 @@ def run(annex_paths):
     fsck_times.sort()
     print len(fsck_times), "files"
     for fsck_time, f in fsck_times:
-        print "%s last fscked %s" % (f['short'], fsck_time and time.ctime(fsck_time) or "Never")
-        if fsck(f):
-            record_fsck(f)
+        if ts() - fsck_time > minimum_age:
+            print "%s last fscked %s" % (f['short'], fsck_time and time.ctime(fsck_time) or "Never")
+            if fsck(f):
+                record_fsck(f)
 
 if __name__ == "__main__":
     roots = sys.argv[1:]
