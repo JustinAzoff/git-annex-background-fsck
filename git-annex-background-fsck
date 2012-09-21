@@ -33,23 +33,21 @@ def filtered_tree(path):
         if '.git/' not in fn:
             yield fn
 
-def get_all_files(paths):
-    files = []
-    for path in paths:
-        annex_root = find_annex_root(path)
-        for fn in filtered_tree(path):
-            short = os.path.relpath(fn, annex_root)
-            keypath = os.path.realpath(fn)
-            parent = os.path.dirname(keypath)
-            if 'annex/objects' not in keypath:
-                continue
-            files.append(dict(root=annex_root, full=fn, short=short, key=keypath, parent=parent))
-            
-    return files
+def get_all_files(path):
+    annex_root = find_annex_root(path)
+    for fn in filtered_tree(path):
+        short = os.path.relpath(fn, annex_root)
+        keypath = os.path.realpath(fn)
+        parent = os.path.dirname(keypath)
+        if 'annex/objects' not in keypath:
+            continue
+        if not os.path.exists(fn):
+            continue
+        f = dict(full=fn, short=short, key=keypath, parent=parent)
+        yield f
 
 def fsck(entry):
-    os.chdir(entry['root'])
-    status = subprocess.call(["git", "annex", "fsck", "-q", entry['short']])
+    status = subprocess.call(["git", "annex", "fsck", entry['short']])
     return status == 0
 
 def record_fsck(entry):
@@ -70,21 +68,42 @@ def get_fsck_time(entry):
 
     return 0
 
-def run(annex_paths, minimum_age=60*60*24):
-    annex_paths = map(os.path.abspath, annex_paths)
-    annex_paths = map(os.path.realpath, annex_paths)
+def get_or_set_last_fsck_start(path, restart=False):
+    annex_root = find_annex_root(path)
+    fsck_start_file = os.path.join(annex_root, ".git", "annex", "fsck_start")
+    if not restart and os.path.exists(fsck_start_file):
+        with open(fsck_start_file) as f:
+            start = int(f.read().strip())
+    else:
+        start = ts()
+        with open(fsck_start_file,'w') as f:
+            f.write("%d\n" % start)
+    return start
+    
 
-    file_list = get_all_files(annex_paths)
-    real_files = [f for f in file_list if os.path.exists(f['full'])]
-    fsck_times = [(get_fsck_time(f),f) for f in real_files]
-    fsck_times.sort()
-    print len(fsck_times), "files"
-    for fsck_time, f in fsck_times:
-        if ts() - fsck_time > minimum_age:
-            print "%s last fscked %s" % (f['short'], fsck_time and time.ctime(fsck_time) or "Never")
+def fsck_tree(path, restart=False):
+    annex_root = find_annex_root(path)
+    os.chdir(annex_root)
+    fsck_start_time = get_or_set_last_fsck_start(annex_root, restart=restart)
+    file_list = get_all_files(path)
+    files_checked = 0
+    for f in file_list:
+        fsck_time = get_fsck_time(f)
+        if fsck_time < fsck_start_time:
+            #print "%s last fscked %s" % (f['short'], fsck_time and time.ctime(fsck_time) or "Never")
+            files_checked +=1
             if fsck(f):
                 record_fsck(f)
 
+    return files_checked
+
 if __name__ == "__main__":
     roots = sys.argv[1:]
-    run(roots)
+    roots = map(os.path.abspath, roots)
+    roots = map(os.path.realpath, roots)
+
+    for root in roots:
+        checked = fsck_tree(root)
+        print "fscked %d files" % checked
+        #if checked == 0:
+        #    fsck_tree(root, restart=True)
